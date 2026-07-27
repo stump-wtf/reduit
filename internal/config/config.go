@@ -2,8 +2,8 @@
 //
 // Configuration is loaded from a YAML file (path resolved by precedence:
 // --config flag, REDUIT_CONFIG env, ~/.config/reduit/reduit.yaml,
-// ./reduit.yaml) with environment-variable overrides via the REDUIT_
-// prefix.
+// /etc/reduit/reduit.yaml, ./reduit.yaml) with environment-variable
+// overrides via the REDUIT_ prefix.
 //
 // Governing: ADR-0012 (single-user local-first), ADR-0006 (SQLite path),
 // ADR-0018 (one LLM egress, two model roles).
