@@ -38,20 +38,33 @@ RUN addgroup -S -g 10000 reduit \
  && adduser  -S -u 10000 -G reduit reduit \
  && apk upgrade --no-cache \
  && apk add --no-cache ca-certificates tzdata \
- && mkdir -p /var/lib/reduit /etc/reduit/tls \
+ && mkdir -p /var/lib/reduit /etc/reduit \
  && chown -R reduit:reduit /var/lib/reduit \
  && chmod 0700 /var/lib/reduit
 
 COPY --from=build /out/reduit /usr/local/bin/reduit
 
 # Standard volume mounts:
-#   /var/lib/reduit  — persistent data (sqlite + master.key)
-#   /etc/reduit      — config + cert/key files
+#   /var/lib/reduit  — persistent data (sqlite cache; point the config's
+#                      data_dir here — the default is ~/.local/share/reduit)
+#   /etc/reduit      — config (reduit.yaml)
 VOLUME ["/var/lib/reduit", "/etc/reduit"]
 
-# HTTPS / IMAPS / SMTPS listeners.
-EXPOSE 443 993 465
+# No REDUIT_CONFIG here: the default resolution order already includes
+# /etc/reduit/reduit.yaml, and setting the env var explicitly turns an
+# absent config file into a hard startup error instead of falling back
+# to defaults. Mount a config at /etc/reduit/reduit.yaml to override.
+
+# NOTE: Reduit keeps Proton credentials in the OS keychain (ADR-0013), so
+# in-container use requires a Secret Service reachable over D-Bus — on a
+# headless host that means a libsecret collection unlocked out of band at
+# boot, per ADR-0013's headless guidance. There is no file-based secrets
+# fallback by design.
 
 USER reduit
 ENTRYPOINT ["/usr/local/bin/reduit"]
-CMD ["serve"]
+# Default to the stdio MCP server: the container is meant to be exec'd by an
+# MCP client (`docker run -i … reduit mcp`). `tui` and `sync` are the other
+# useful entrypoints (`docker run -it … reduit tui`,
+# `… reduit sync --watch 15m`).
+CMD ["mcp"]
