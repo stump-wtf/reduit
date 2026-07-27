@@ -56,6 +56,9 @@ var ErrProtonUserIDConflict = errors.New("store: proton_user_id mismatch — ref
 //
 // Governing: SPEC-0001 REQ "Mailbox Identity" scenario "Mailbox row created with a UUIDv7 id".
 func (s *Store) InsertMailbox(ctx context.Context, id, address string) error {
+	if s == nil || s.WriterDB() == nil {
+		return errNotOpen
+	}
 	const q = `INSERT INTO mailboxes (id, address, state) VALUES (?, ?, 'pending_auth')`
 	_, err := s.WriterDB().ExecContext(ctx, q, id, address)
 	if err != nil {
@@ -66,6 +69,9 @@ func (s *Store) InsertMailbox(ctx context.Context, id, address string) error {
 
 // GetMailbox returns the mailbox row for the given id.
 func (s *Store) GetMailbox(ctx context.Context, id string) (Mailbox, error) {
+	if s == nil || s.DB == nil {
+		return Mailbox{}, errNotOpen
+	}
 	var m Mailbox
 	const q = `SELECT id, proton_user_id, address, state, added_at, last_sync_at, session_uid FROM mailboxes WHERE id = ?`
 	if err := s.DB.GetContext(ctx, &m, q, id); err != nil {
@@ -79,6 +85,9 @@ func (s *Store) GetMailbox(ctx context.Context, id string) (Mailbox, error) {
 
 // GetMailboxByAddress returns the mailbox row for the given Proton address.
 func (s *Store) GetMailboxByAddress(ctx context.Context, address string) (Mailbox, error) {
+	if s == nil || s.DB == nil {
+		return Mailbox{}, errNotOpen
+	}
 	var m Mailbox
 	const q = `SELECT id, proton_user_id, address, state, added_at, last_sync_at, session_uid FROM mailboxes WHERE address = ?`
 	if err := s.DB.GetContext(ctx, &m, q, address); err != nil {
@@ -92,6 +101,9 @@ func (s *Store) GetMailboxByAddress(ctx context.Context, address string) (Mailbo
 
 // ListMailboxes returns all configured mailboxes.
 func (s *Store) ListMailboxes(ctx context.Context) ([]Mailbox, error) {
+	if s == nil || s.DB == nil {
+		return nil, errNotOpen
+	}
 	var rows []Mailbox
 	const q = `SELECT id, proton_user_id, address, state, added_at, last_sync_at, session_uid FROM mailboxes ORDER BY added_at ASC`
 	if err := s.DB.SelectContext(ctx, &rows, q); err != nil {
