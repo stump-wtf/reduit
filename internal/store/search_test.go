@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -121,5 +122,49 @@ func TestSearchMessages_EmptyCache(t *testing.T) {
 	seedMailbox(t, st, testMailboxID, "joe@example.com")
 	if hits, err := st.SearchMessages(context.Background(), "anything", 0); err != nil || len(hits) != 0 {
 		t.Errorf("empty-cache search: hits=%d err=%v", len(hits), err)
+	}
+}
+
+// TestIsFTSSyntaxError_Classification pins the narrowed classifier against the
+// real driver's error strings (captured by probe, issue #234): genuine
+// user-input syntax errors are swallowed, schema/system regressions are NOT.
+func TestIsFTSSyntaxError_Classification(t *testing.T) {
+	syntax := []string{
+		"SQL logic error: unterminated string (1)",          // bare `"`
+		"SQL logic error: fts5: syntax error near \"\" (1)", // dangling operator / group
+		"SQL logic error: malformed MATCH expression (1)",
+	}
+	for _, s := range syntax {
+		if !isFTSSyntaxError(errors.New(s)) {
+			t.Errorf("isFTSSyntaxError(%q) = false, want true (user syntax error)", s)
+		}
+	}
+	regressions := []string{
+		"SQL logic error: no such column: foo (1)",         // renamed/dropped column
+		"SQL logic error: no such table: messages_fts (1)", // dropped FTS table
+		"SQL logic error: unknown special query:  (1)",     // not a query-syntax class
+		"SQL logic error: no such column: nosuchcol (1)",
+	}
+	for _, s := range regressions {
+		if isFTSSyntaxError(errors.New(s)) {
+			t.Errorf("isFTSSyntaxError(%q) = true, want false (schema regression must surface)", s)
+		}
+	}
+	if isFTSSyntaxError(nil) {
+		t.Error("isFTSSyntaxError(nil) = true, want false")
+	}
+}
+
+// TestSearchMessages_BrokenFTSSchemaErrors proves a schema regression (here a
+// dropped FTS table) surfaces as an ERROR, not silently as "no matches"
+// (issue #234).
+func TestSearchMessages_BrokenFTSSchemaErrors(t *testing.T) {
+	st := newTestStore(t)
+	seedSearchCorpus(t, st)
+	if _, err := st.DB.Exec(`DROP TABLE messages_fts`); err != nil {
+		t.Fatalf("drop fts table: %v", err)
+	}
+	if _, err := st.SearchMessages(context.Background(), "receipt", 0); err == nil {
+		t.Error("SearchMessages with dropped messages_fts = nil error, want a schema error (regression must not masquerade as no-matches)")
 	}
 }
