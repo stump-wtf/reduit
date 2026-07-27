@@ -40,7 +40,7 @@ per-person, local-first tool that runs entirely on your machine.`,
 	}
 
 	root.PersistentFlags().StringVar(&cfgPath, "config", "",
-		"path to reduit.yaml (default: $REDUIT_CONFIG, ~/.config/reduit/reduit.yaml, ./reduit.yaml)")
+		"path to reduit.yaml (default: $REDUIT_CONFIG, ~/.config/reduit/reduit.yaml, /etc/reduit/reduit.yaml, ./reduit.yaml)")
 	root.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false,
 		"enable debug-level logging")
 
