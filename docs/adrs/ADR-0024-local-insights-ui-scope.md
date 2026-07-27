@@ -155,8 +155,8 @@ flowchart LR
 ## More Information
 
 - Owner decision (2026-07-03) closing epic
-  [#75](https://gitea.stump.rocks/joestump/reduit/issues/75) and
-  [#102](https://gitea.stump.rocks/joestump/reduit/issues/102)–[#105](https://gitea.stump.rocks/joestump/reduit/issues/105)
+  [#75](https://gitea.stump.rocks/stump.wtf/reduit/issues/75) and
+  [#102](https://gitea.stump.rocks/stump.wtf/reduit/issues/102)–[#105](https://gitea.stump.rocks/stump.wtf/reduit/issues/105)
   won't-fix.
 - Narrows the scope of the earlier frontend-stack decision (later retired
   by ADR-0025); consistent with **ADR-0012** (single-user local-first),

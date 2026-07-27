@@ -144,7 +144,7 @@ When orchestrating multiple design plugin skills in a single session (e.g., runn
 
 - **Type**: gitea
 - **Host**: gitea.stump.rocks
-- **Owner**: joestump
+- **Owner**: stump.wtf
 - **Repo**: reduit
 
 #### Branch Conventions
