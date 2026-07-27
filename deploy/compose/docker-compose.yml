@@ -1,61 +1,55 @@
-# Reference docker-compose for a self-hosted Reduit deployment.
+# Minimal docker-compose for Reduit — post local-first pivot (ADR-0012).
 #
-# Assumes:
-#   - certbot or Caddy is producing certs into a host-side path that
-#     gets mounted at /etc/reduit/tls.
-#   - /var/lib/reduit on the host holds the sqlite DB and master.key.
-#   - Pocket ID (or another OIDC IdP) is reachable from the container.
+# Reduit is a local-first CLI/MCP tool, not a network service. Compose is
+# only useful for ONE thing: running `reduit sync --watch` on a headless
+# host so the local cache stays fresh without a logged-in desktop.
+#
+# HARD REQUIREMENT — the OS keychain (ADR-0013). Reduit stores Proton
+# credentials in the platform secret service, reached over D-Bus. A
+# container has no keyring of its own, so this ONLY works if the host
+# provides one:
+#   - the host runs a Secret Service (libsecret / GNOME Keyring / KWallet)
+#     with a collection unlocked out of band at boot, per ADR-0013's
+#     headless guidance, AND
+#   - the D-Bus session socket is mounted into the container (below).
+# There is no file-based secrets fallback, by design. If you cannot
+# provide an unlocked keyring, run `reduit sync --watch` as a systemd
+# user service on the host instead — that is the better path for most
+# people, and compose is not for you.
+#
+# Config lives in ./reduit.yaml (see deploy/reduit.example.yaml). Point
+# its data_dir at /var/lib/reduit. Provision credentials BEFORE first
+# sync: `reduit auth add` on a host with a working keychain.
 #
 # First-run sequence on a fresh host:
-#
-#   docker compose run --rm reduit master-key generate
 #   docker compose run --rm reduit migrate
 #   docker compose up -d
-#
-# See the project README for the full self-host guide.
 
 services:
   reduit:
-    image: ghcr.io/joestump/reduit:latest
+    image: gitea.stump.rocks/stump.wtf/reduit:latest
     restart: unless-stopped
 
-    # Map host ports. Adjust for your deployment.
-    ports:
-      - "443:443"   # HTTPS — admin UI + MCP
-      - "993:993"   # IMAPS
-      - "465:465"   # SMTPS submission
+    # No ports: reduit exposes no network listeners (the web UI, IMAPS,
+    # and SMTPS are all gone — ADR-0012/ADR-0025).
+
+    # Long-running sync loop; the image's default CMD is `mcp` (stdio),
+    # which is not useful detached.
+    command: ["sync", "--watch", "15m"]
 
     volumes:
-      # Persistent data.
+      # Persistent data (sqlite cache). Match data_dir in reduit.yaml.
       - ./data:/var/lib/reduit
-      # Config + TLS certs (often a bind-mount from certbot's output).
+      # Config.
       - ./reduit.yaml:/etc/reduit/reduit.yaml:ro
-      - /etc/letsencrypt/live/reduit.example.tld/fullchain.pem:/etc/reduit/tls/fullchain.pem:ro
-      - /etc/letsencrypt/live/reduit.example.tld/privkey.pem:/etc/reduit/tls/privkey.pem:ro
+      # D-Bus session socket so the container can reach the host's
+      # Secret Service (see the keychain note above). Adjust the path
+      # for your host ($XDG_RUNTIME_DIR/bus on systemd user sessions).
+      # - /run/user/1000/bus:/run/user/1000/bus
 
     environment:
-      # Secrets are best supplied via env, not the YAML file.
-      #
-      # Two forms are supported. Pick one:
-      #
-      #   1. Direct value (simplest):
-      #        REDUIT_OIDC_CLIENT_SECRET: "${REDUIT_OIDC_CLIENT_SECRET}"
-      #
-      #   2. File-based (Docker secrets / k8s secrets / systemd
-      #      LoadCredential). The env var ends in `_FILE` and points at
-      #      a path; reduit reads the file at startup, strips trailing
-      #      whitespace, and treats the contents as the value:
-      #        REDUIT_OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc_client_secret
-      #      ... combined with a top-level `secrets:` block and a
-      #      service-level `secrets: [oidc_client_secret]` mount.
-      REDUIT_OIDC_CLIENT_SECRET: "${REDUIT_OIDC_CLIENT_SECRET}"
+      # Point at the mounted D-Bus socket if you uncomment the mount.
+      # DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/1000/bus"
       # Optional structured logging:
-      # REDUIT_LOGGER_FORMAT: json
       # REDUIT_LOGGER_LEVEL: info
-
-    healthcheck:
-      test: ["CMD", "wget", "--no-check-certificate", "--quiet", "--spider", "https://localhost/healthz"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
+      REDUIT_LOGGER_FORMAT: json
