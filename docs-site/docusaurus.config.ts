@@ -7,7 +7,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 // ============================================================
 const PROJECT_TITLE = 'Reduit';
 const PROJECT_TAGLINE = 'A sovereign, single-user, local-first Proton Mail tool — Bubble Tea TUI + stdio MCP. Docs are being rebuilt.';
-const GITHUB_URL = 'https://gitea.stump.rocks/joestump/reduit';
+const GITHUB_URL = 'https://gitea.stump.rocks/stump.wtf/reduit';
 const SITE_URL = 'https://joestump.pages.stump.rocks';
 const BASE_URL = '/reduit/';
 // ============================================================
