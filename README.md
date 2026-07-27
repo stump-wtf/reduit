@@ -15,8 +15,34 @@ to a desktop GUI on each user's laptop.
 
 ## Status
 
-🚧 **Pre-alpha.** Architecture and specs are being written. No functional
-release yet.
+🚧 **Pre-alpha and not fully tested.** There is now a tagged `v0.1.0` and the
+binary builds and runs, but treat it as a preview rather than something to put
+in front of your mail.
+
+> **Note:** the description below is the original design intent. The `v0.1.0`
+> binary's own `--help` describes a narrower tool — caching Proton Mail locally,
+> embedding messages for semantic search, and exposing a stdio MCP server for AI
+> agents. Where the two disagree, trust `reduit --help`; this README has drifted.
+
+## Install
+
+### Homebrew (preferred)
+
+```sh
+brew tap stump-wtf/tap
+brew install reduit
+```
+
+The formula builds from source, so the binary is compiled locally and never
+picks up macOS's `com.apple.quarantine` attribute — no Gatekeeper prompt.
+
+### From source
+
+```sh
+go install github.com/joestump/reduit/cmd/reduit@v0.1.0
+```
+
+> This installs from the GitHub mirror using the module path in go.mod. For the canonical repository, see https://gitea.stump.rocks/stump.wtf/reduit.
 
 ## What Reduit is
 
