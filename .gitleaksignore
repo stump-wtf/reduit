@@ -1,0 +1,9 @@
+# Baseline of known-false-positive gitleaks findings (fingerprints are
+# commit:file:rule:line — see stumpcloud/gitleaks-action README).
+
+# docs/design/refactor-to-local.md — prose in the architecture tree, not a key.
+eb060f7c2ffc71529ad7b77fe6fc6202f71734ad:docs/design/refactor-to-local.md:generic-api-key:47
+ec4754b59d507fdd415239c4f2af49effdacdadc:docs/design/refactor-to-local.md:generic-api-key:47
+
+# internal/protonlive/protonlive_test.go — fixture salt, base64("saltsaltsaltsalt").
+e744a5d6396a779d64720c51bfe352850ebe72ef:internal/protonlive/protonlive_test.go:generic-api-key:204

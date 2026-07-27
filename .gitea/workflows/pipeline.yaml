@@ -1,0 +1,182 @@
+---
+# The single end-to-end pipeline. One run, one dependency graph:
+#
+#   secret scan → lint → test → build → ai review
+#                                          │  (merge to main only)
+#                          publish image · Gitea Pages
+#
+# Replaces four workflows that raced with no ordering between them
+# (aibot.yml, gitleaks.yaml, ci.yaml, build.yaml, pages.yaml). Notably
+# build.yaml previously ran on push-to-main INDEPENDENTLY of ci.yaml — the
+# image could be built, scanned and pushed while the test gate was still
+# running, or even after it had failed. Its own header admitted this:
+# "If GitHub CI is bypassed (admin merge etc.), nothing here catches a
+# regression before the image lands -- accept that risk." That risk is now
+# gone: `publish` sits behind `main-only`, which sits behind `build`.
+#
+# The lint/test/build and secret-scan and review stages live in stump.wtf/ci.
+# The publish job is deliberately LOCAL and copied verbatim from build.yaml —
+# multi-arch QEMU + Buildx, docker/metadata-action tagging, and a Trivy scan
+# that fails closed on HIGH/CRITICAL. The shared go-service publish path is
+# single-arch with no scan, so calling it would have traded a vulnerability
+# gate for uniformity. Promoting this job into stump.wtf/ci is the follow-up.
+name: pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Manual re-runs from the Actions UI — retrying a flaky Trivy scan,
+  # rebuilding after a registry-side change, etc. (carried over from build.yaml)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: ${{ gitea.workflow }}-${{ gitea.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---- 1. secret scan ------------------------------------------------------
+  secrets:
+    uses: https://gitea.stump.rocks/stump.wtf/ci/.gitea/workflows/gitleaks.yaml@main
+    secrets: inherit
+
+  # ---- 2-4. lint + test + build -------------------------------------------
+  build:
+    needs: [secrets]
+    uses: https://gitea.stump.rocks/stump.wtf/ci/.gitea/workflows/go-service.yaml@main
+    with:
+      # `make ci` is `lint test`: fmtcheck, go vet, pinned staticcheck (with
+      # the GOTOOLCHAIN override the Makefile already handles), and
+      # `go test -race -count=1 ./...`. Driving CI through the Makefile means
+      # the staticcheck pin lives in ONE place — it previously sat in both
+      # ci.yaml and the Makefile and had to be bumped in lockstep by hand.
+      lint_cmd: make ci
+      build_cmd: make build
+      # -race requires cgo; the shared workflow defaults CGO_ENABLED=0.
+      cgo_enabled: "1"
+      # Publishing is the local job below, not the shared single-arch path.
+      publish_image: false
+    secrets: inherit
+
+  # ---- 5. ai review (PRs only, and only once the build is green) ----------
+  review:
+    needs: [build]
+    if: ${{ github.event_name == 'pull_request' }}
+    uses: https://gitea.stump.rocks/stump.wtf/ci/.gitea/workflows/aibot.yaml@main
+    secrets: inherit
+
+  # ---- 6. merge-to-main gate ----------------------------------------------
+  main-only:
+    needs: [build]
+    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gate
+        run: echo "on main with a green build — releasing" >> "$GITHUB_STEP_SUMMARY"
+
+  # ---- 7a. build + scan + push the image ----------------------------------
+  # Verbatim from build.yaml, with only the trigger replaced by `needs:
+  # [main-only]`. Do not "simplify" this into the shared publish path without
+  # first promoting Trivy + multi-arch into it.
+  publish:
+    name: build + scan + push
+    needs: [main-only]
+    runs-on: ubuntu-latest
+    steps:
+      # Mirror of `.github/workflows/ci.yml` action versions. Dependabot only
+      # watches `.github/workflows/`, so this has to be bumped manually to keep
+      # the two CI surfaces aligned.
+      - uses: actions/checkout@v6
+
+      - name: Set up QEMU
+        run: docker run --rm --privileged tonistiigi/binfmt --install all
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            gitea.stump.rocks/joestump/reduit
+          # Tagging strategy:
+          #   - :latest -- tracks main HEAD (consumed by the stumpcloud ansible
+          #     playbook with `pull: always`)
+          #   - :sha-<short> -- traceable per-commit tag for debugging and for
+          #     pinning during a controlled rollout
+          #   - :main -- branch ref tag, redundant with :latest but useful if a
+          #     future branch-based deploy strategy lands
+          tags: |
+            type=raw,value=latest,enable={{ is_default_branch }}
+            type=ref,event=branch
+            type=sha,prefix=sha-,format=short
+
+      - name: Login to Gitea container registry
+        uses: docker/login-action@v3
+        with:
+          registry: gitea.stump.rocks
+          # The per-run `secrets.GITEA_TOKEN` works for the Gitea API but NOT
+          # for the container registry (which expects a real user PAT with the
+          # `write:package` scope -- regular API auth is rejected with 401).
+          # `secrets.REGISTRY_TOKEN` is a purpose-scoped PAT named
+          # "reduit-actions-registry-push".
+          username: joestump
+          password: ${{ secrets.REGISTRY_TOKEN }}
+
+      # Build amd64 first into a run-scoped local-only "scan" tag so Trivy can
+      # inspect a real image instead of a manifest list. Tag scoped with
+      # `${{ gitea.run_id }}` so concurrent dispatches sharing a runner's docker
+      # daemon don't race on the same scan tag. Failure here blocks the push --
+      # we don't ship images with critical/high CVEs that have a fix available.
+      - name: Build amd64 image for Trivy scan
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: gitea.stump.rocks/joestump/reduit:scan-${{ gitea.run_id }}
+          build-args: |
+            VERSION=${{ gitea.sha }}
+          cache-from: type=registry,ref=gitea.stump.rocks/joestump/reduit:buildcache
+
+      # Trivy floating tag matches stumpcloud/mirror's docker.yaml convention
+      # (governed by that repo's ADR-0005). Severity floor is HIGH+CRITICAL
+      # with --ignore-unfixed, so MEDIUM CVEs ship silently -- by design, since
+      # "no upstream fix available" means there's nothing actionable for us.
+      - name: Trivy image scan
+        uses: docker://aquasec/trivy:latest
+        with:
+          args: image --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1 --format table gitea.stump.rocks/joestump/reduit:scan-${{ gitea.run_id }}
+
+      # amd64 only -- ie01 is the only deploy target today. Add linux/arm64
+      # when reduit is deployed on a Pi or arm64 host. Cheap to add later.
+      - name: Build and push (amd64)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ gitea.sha }}
+          cache-from: type=registry,ref=gitea.stump.rocks/joestump/reduit:buildcache
+          cache-to: type=registry,ref=gitea.stump.rocks/joestump/reduit:buildcache,mode=max
+
+  # ---- 7b. Gitea Pages ----------------------------------------------------
+  pages:
+    needs: [main-only]
+    uses: https://gitea.stump.rocks/stump.wtf/ci/.gitea/workflows/static-site.yaml@main
+    with:
+      working_directory: docs-site
+      source_dir: docs-site/build
+    secrets: inherit
