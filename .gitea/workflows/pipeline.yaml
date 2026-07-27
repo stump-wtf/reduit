@@ -105,10 +105,9 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            gitea.stump.rocks/joestump/reduit
+            gitea.stump.rocks/stump.wtf/reduit
           # Tagging strategy:
-          #   - :latest -- tracks main HEAD (consumed by the stumpcloud ansible
-          #     playbook with `pull: always`)
+          #   - :latest -- tracks main HEAD
           #   - :sha-<short> -- traceable per-commit tag for debugging and for
           #     pinning during a controlled rollout
           #   - :main -- branch ref tag, redundant with :latest but useful if a
@@ -125,8 +124,11 @@ jobs:
           # The per-run `secrets.GITEA_TOKEN` works for the Gitea API but NOT
           # for the container registry (which expects a real user PAT with the
           # `write:package` scope -- regular API auth is rejected with 401).
-          # `secrets.REGISTRY_TOKEN` is a purpose-scoped PAT named
-          # "reduit-actions-registry-push".
+          # `secrets.REGISTRY_TOKEN` is the stump.wtf ORG secret the shared
+          # go-service publish path uses (a joestump PAT with write:package);
+          # the repo-scoped "reduit-actions-registry-push" PAT did not migrate
+          # with the repo, which is why pushes to the old joestump/* namespace
+          # 401'd (reqPackageAccess).
           username: joestump
           password: ${{ secrets.REGISTRY_TOKEN }}
 
@@ -142,10 +144,10 @@ jobs:
           file: deploy/docker/Dockerfile
           platforms: linux/amd64
           load: true
-          tags: gitea.stump.rocks/joestump/reduit:scan-${{ gitea.run_id }}
+          tags: gitea.stump.rocks/stump.wtf/reduit:scan-${{ gitea.run_id }}
           build-args: |
             VERSION=${{ gitea.sha }}
-          cache-from: type=registry,ref=gitea.stump.rocks/joestump/reduit:buildcache
+          cache-from: type=registry,ref=gitea.stump.rocks/stump.wtf/reduit:buildcache
 
       # Trivy floating tag matches stumpcloud/mirror's docker.yaml convention
       # (governed by that repo's ADR-0005). Severity floor is HIGH+CRITICAL
@@ -154,7 +156,7 @@ jobs:
       - name: Trivy image scan
         uses: docker://aquasec/trivy:latest
         with:
-          args: image --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1 --format table gitea.stump.rocks/joestump/reduit:scan-${{ gitea.run_id }}
+          args: image --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1 --format table gitea.stump.rocks/stump.wtf/reduit:scan-${{ gitea.run_id }}
 
       # amd64 only -- ie01 is the only deploy target today. Add linux/arm64
       # when reduit is deployed on a Pi or arm64 host. Cheap to add later.
@@ -169,8 +171,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ gitea.sha }}
-          cache-from: type=registry,ref=gitea.stump.rocks/joestump/reduit:buildcache
-          cache-to: type=registry,ref=gitea.stump.rocks/joestump/reduit:buildcache,mode=max
+          cache-from: type=registry,ref=gitea.stump.rocks/stump.wtf/reduit:buildcache
+          cache-to: type=registry,ref=gitea.stump.rocks/stump.wtf/reduit:buildcache,mode=max
 
   # ---- 7b. Gitea Pages ----------------------------------------------------
   pages:
