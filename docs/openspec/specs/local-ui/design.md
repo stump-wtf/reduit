@@ -16,8 +16,7 @@ legible to a terminal-native operator.
 ## Style reference — "Bubbletea TUI Design System"
 
 The normative visual reference is the owner's **Bubble Tea design system**
-(Claude Design, "Bubbletea TUI Design System" —
-<https://claude.ai/design/p/5c2f3709-9093-45fd-9762-fbe0a39b6c7b>). Where
+(Claude Design, ["Bubbletea TUI Design System"](https://claude.ai/design/p/5c2f3709-9093-45fd-9762-fbe0a39b6c7b)). Where
 the design system and this spec conflict, the spec's *requirements* win
 (behavior, security, scope); the design system governs *look and feel*.
 
@@ -60,7 +59,7 @@ It must never read as corporate or flat.
   `❯ › $`, spinners `⣾⣽⣻⢿⡿⣟⣯⣷` / `⠋⠙⠹⠸`, progress `█ ▓ ▒ ░`, borders
   `─ │ ╭ ╮ ╰ ╯ ├ ┤`. Emoji only as sparing flourishes (never in dense UI).
   This is how mutt + Charm render — type the glyph, never a web icon set.
-  **Optional Nerd Fonts enhancement layer** (<https://www.nerdfonts.com> — the
+  **Optional Nerd Fonts enhancement layer** ([nerdfonts.com](https://www.nerdfonts.com) — the
   patched-font glyph set powerline/Oh-My-Zsh themes rely on): when the user's
   terminal has a Nerd Font, the TUI MAY use its extended glyphs (file-type
   icons, git branch/state, folder/attachment icons) for a richer index/status
