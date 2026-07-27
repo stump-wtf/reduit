@@ -1,6 +1,6 @@
 // Reduit — a local-first Proton Mail CLI with semantic search and MCP.
 //
-// See https://github.com/joestump/reduit for documentation.
+// See https://gitea.stump.rocks/stump.wtf/reduit for documentation.
 package main
 
 import (
