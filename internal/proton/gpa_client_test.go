@@ -69,6 +69,25 @@ func TestGPAClient_AccessorsZeroValue(t *testing.T) {
 	c.Close() // must not panic with nil cli
 }
 
+// TestGPAClient_CloseZeroesSaltedKeyPass asserts Close wipes the retained
+// secret and the accessor reports it gone (issue #236).
+func TestGPAClient_CloseZeroesSaltedKeyPass(t *testing.T) {
+	c := &gpaClient{}
+	secret := []byte("super-secret-key-pass")
+	c.saltedKeyPass = secret
+
+	c.Close()
+
+	for i, b := range secret {
+		if b != 0 {
+			t.Fatalf("saltedKeyPass[%d] = %d after Close, want 0 (secret not zeroed)", i, b)
+		}
+	}
+	if got := c.SaltedKeyPass(); got != nil {
+		t.Errorf("SaltedKeyPass() after Close = %v, want nil", got)
+	}
+}
+
 func TestNewDialer_NewClientImplementsInterface(t *testing.T) {
 	d := NewDialer(Config{HostURL: "https://example.invalid", AppVersion: "reduit@test"})
 	defer d.Close()
