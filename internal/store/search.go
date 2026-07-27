@@ -66,8 +66,11 @@ func (s *Store) SearchMessages(ctx context.Context, query string, limit int) ([]
 	var hits []SearchHit
 	if err := s.DB.SelectContext(ctx, &hits, q, match, limit); err != nil {
 		// A malformed FTS expression that slipped past ftsQuery must degrade to
-		// "no matches", not error the whole search (SPEC-0008).
+		// "no matches", not error the whole search (SPEC-0008). A schema
+		// regression (dropped/renamed column or table) is NOT a syntax error and
+		// must surface as an error, not masquerade as "no matches".
 		if isFTSSyntaxError(err) {
+			s.logger.Debug("fts query degraded to no-matches", "error", err)
 			return nil, nil
 		}
 		return nil, fmt.Errorf("store: search messages: %w", err)
@@ -142,6 +145,20 @@ func ftsQuery(raw string) string {
 // isFTSSyntaxError reports whether err is an FTS5 query-syntax error, which the
 // modernc.org/sqlite driver surfaces as a plain message. Matched so a bad query
 // degrades to "no matches" rather than erroring.
+//
+// The matching is deliberately narrow. Evidence (probe tests against the real
+// driver, issue #234): ftsQuery quotes every token, so a raw user string cannot
+// produce a column filter or a dangling operator — the only syntax-class errors
+// reachable here are the ones below. Schema/system regressions return DISTINCT
+// strings that must NOT be swallowed:
+//
+//	user-input syntax (swallow):  "SQL logic error: unterminated string (1)"
+//	                              "SQL logic error: fts5: syntax error near \"\" (1)"
+//	schema regression (surface):  "SQL logic error: no such column: foo (1)"
+//	                              "SQL logic error: no such table: messages_fts (1)"
+//
+// "no such column"/"no such table" are intentionally NOT matched — they signal a
+// broken schema or trigger, which must error loudly, not look like zero hits.
 func isFTSSyntaxError(err error) bool {
 	if err == nil {
 		return false
@@ -149,7 +166,5 @@ func isFTSSyntaxError(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "fts5") ||
 		strings.Contains(msg, "malformed match") ||
-		strings.Contains(msg, "syntax error") ||
-		strings.Contains(msg, "unterminated") ||
-		strings.Contains(msg, "no such column")
+		strings.Contains(msg, "unterminated")
 }
