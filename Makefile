@@ -7,8 +7,9 @@
 #   make fmtcheck   fail if any file is not gofmt-clean (CI gate)
 #   make lint       gofmt check + go vet + pinned staticcheck
 #   make ci         everything CI runs: lint + race tests
+#   make check      alias for ci (lint + race tests)
 #   make tidy       go mod tidy
-#   make run        go run ./cmd/reduit serve (with REDUIT_CONFIG=./reduit.yaml)
+#   make run        build and launch the TUI (./bin/reduit tui)
 #   make docker     build the deployment Docker image
 
 GO         ?= go
@@ -17,7 +18,7 @@ BIN_DIR     := bin
 BINARY      := $(BIN_DIR)/reduit
 VERSION     ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "0.1.0-dev")
 LDFLAGS     := -X $(PKG)/internal/cli.Version=$(VERSION)
-DOCKER_IMG  ?= ghcr.io/joestump/reduit
+DOCKER_IMG  ?= gitea.stump.rocks/stump.wtf/reduit
 DOCKER_TAG  ?= $(VERSION)
 
 # Static-analysis linter, pinned to match .gitea/workflows/ci.yaml and
@@ -34,6 +35,11 @@ all: fmt lint test build
 # gofmt check, go vet, staticcheck, and race tests CI runs on every PR.
 .PHONY: ci
 ci: lint test
+
+# check is the house-convention alias for ci so every repo exposes the
+# same test/lint/check trio.
+.PHONY: check
+check: ci
 
 .PHONY: build
 build:
@@ -80,7 +86,7 @@ tidy:
 
 .PHONY: run
 run: build
-	REDUIT_CONFIG=./reduit.yaml ./$(BINARY) serve
+	./$(BINARY) tui
 
 .PHONY: clean
 clean:
