@@ -155,7 +155,7 @@ type gpaClient struct {
 	// UnlockWithKeyPass WITHOUT calling GetSalts again, mirroring Proton Bridge's
 	// persisted key-pass. It is a SECRET (it grants mailbox key access); it is
 	// exposed only via SaltedKeyPass() for persistence to the keychain and is
-	// never logged (SPEC-0007 "No Secret Leakage").
+	// never logged (SPEC-0007 "No Secret Leakage"). Zeroed at Close.
 	saltedKeyPass []byte
 }
 
@@ -552,8 +552,14 @@ func (c *gpaClient) Send(ctx context.Context, msg OutgoingMessage) (SentMessage,
 	return SentMessage{MessageID: draft.ID}, fmt.Errorf("%w (draft %s created)", ErrSendNotWired, draft.ID)
 }
 
-// Close releases the session transport.
+// Close releases the session transport and zeroes the retained salted key
+// passphrase (a secret). Any slice a caller still holds from SaltedKeyPass()
+// is invalidated — every caller (sync engine, auth) persists it before Close.
 func (c *gpaClient) Close() {
+	for i := range c.saltedKeyPass {
+		c.saltedKeyPass[i] = 0
+	}
+	c.saltedKeyPass = nil
 	if c.cli != nil {
 		c.cli.Close()
 	}
