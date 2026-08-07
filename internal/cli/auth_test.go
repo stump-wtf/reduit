@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/zalando/go-keyring"
 
+	"github.com/joestump/reduit/internal/config"
 	"github.com/joestump/reduit/internal/keychain"
 	"github.com/joestump/reduit/internal/proton"
 	"github.com/joestump/reduit/internal/store"
@@ -115,7 +118,7 @@ func TestAuthAdd_HappyPath(t *testing.T) {
 	p := &scriptPrompter{secrets: []string{"hunter2", "mailbox-pass"}}
 
 	var out bytes.Buffer
-	if err := authAdd(ctx, st, ks, dialer, p, "joe@proton.test", &out); err != nil {
+	if err := authAdd(ctx, st, ks, dialer, p, nil, "joe@proton.test", &out); err != nil {
 		t.Fatalf("authAdd: %v", err)
 	}
 
@@ -152,6 +155,56 @@ func TestAuthAdd_HappyPath(t *testing.T) {
 	}
 }
 
+// TestAuthAdd_FreshDataDirMigrates guards the onboarding path: `auth add` is the
+// first command run on a brand-new install, against a data_dir no migration has
+// touched. The command wiring must bring the store to HEAD before querying, or
+// authAdd's duplicate check hits "no such table: mailboxes". The other auth tests
+// use a pre-migrated newTestStore and so cannot catch this — here we open the
+// store exactly as the command does (openMigratedStore over an EMPTY data_dir)
+// and assert the add reaches success rather than a missing-table error.
+func TestAuthAdd_FreshDataDirMigrates(t *testing.T) {
+	ctx := context.Background()
+
+	cfg := config.Config{DataDir: t.TempDir()}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	// Sanity: an UNMIGRATED store (what the buggy wiring used) fails the very
+	// first query, proving the migration is what makes onboarding work.
+	unmigrated, err := openStore(cfg)
+	if err != nil {
+		t.Fatalf("openStore: %v", err)
+	}
+	_, err = unmigrated.GetMailboxByAddress(ctx, "joe@proton.test")
+	if err == nil || !strings.Contains(err.Error(), "no such table") {
+		t.Fatalf("expected missing-table error on unmigrated store, got %v", err)
+	}
+	_ = unmigrated.Close()
+
+	// The real bootstrap: openMigratedStore mirrors tui/sync/mcp and is what the
+	// auth commands now use. authAdd must succeed against it.
+	st, err := openMigratedStore(cfg, logger)
+	if err != nil {
+		t.Fatalf("openMigratedStore: %v", err)
+	}
+	defer st.Close()
+
+	ks := newTestKeychain(t)
+	fake := proton.NewFake()
+	fake.UserID = "proton-user-fresh"
+	fake.Token = "rt-fresh"
+	fake.UID = "uid-fresh"
+	dialer := &fakeDialer{client: fake}
+	p := &scriptPrompter{secrets: []string{"pw", "pass"}}
+
+	if err := authAdd(ctx, st, ks, dialer, p, nil, "joe@proton.test", &bytes.Buffer{}); err != nil {
+		t.Fatalf("authAdd on freshly-migrated store: %v", err)
+	}
+	m, err := st.GetMailboxByAddress(ctx, "joe@proton.test")
+	if err != nil || m.State != store.MailboxStateActive {
+		t.Fatalf("mailbox not active after add: state=%q err=%v", m.State, err)
+	}
+}
+
 func TestAuthAdd_DuplicateRejected(t *testing.T) {
 	ctx := context.Background()
 	st := newTestStore(t)
@@ -162,7 +215,7 @@ func TestAuthAdd_DuplicateRejected(t *testing.T) {
 	dialer := &fakeDialer{client: proton.NewFake()}
 	p := &scriptPrompter{secrets: []string{"hunter2", "mailbox-pass"}}
 
-	err := authAdd(ctx, st, ks, dialer, p, "joe@proton.test", &bytes.Buffer{})
+	err := authAdd(ctx, st, ks, dialer, p, nil, "joe@proton.test", &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "already configured") {
 		t.Fatalf("expected duplicate rejection, got %v", err)
 	}
@@ -184,7 +237,7 @@ func TestAuthAdd_TOTPBranch(t *testing.T) {
 	dialer := &fakeDialer{client: fake}
 	p := &scriptPrompter{secrets: []string{"pw", "pass"}, lines: []string{"654321"}}
 
-	if err := authAdd(ctx, st, ks, dialer, p, "totp@proton.test", &bytes.Buffer{}); err != nil {
+	if err := authAdd(ctx, st, ks, dialer, p, nil, "totp@proton.test", &bytes.Buffer{}); err != nil {
 		t.Fatalf("authAdd TOTP: %v", err)
 	}
 	if len(fake.TOTPSubmitted) != 1 || fake.TOTPSubmitted[0] != "654321" {
@@ -205,7 +258,7 @@ func TestAuthAdd_Unsupported2FA(t *testing.T) {
 	dialer := &fakeDialer{client: fake}
 	p := &scriptPrompter{secrets: []string{"pw", "pass"}}
 
-	err := authAdd(ctx, st, ks, dialer, p, "fido@proton.test", &bytes.Buffer{})
+	err := authAdd(ctx, st, ks, dialer, p, nil, "fido@proton.test", &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "TOTP") {
 		t.Fatalf("expected unsupported-2FA error, got %v", err)
 	}
@@ -229,7 +282,7 @@ func TestAuthAdd_CleanupOnSecretFailure(t *testing.T) {
 	t.Cleanup(keyring.MockInit)
 	ks := keychain.New()
 
-	err := authAdd(ctx, st, ks, dialer, p, "boom@proton.test", &bytes.Buffer{})
+	err := authAdd(ctx, st, ks, dialer, p, nil, "boom@proton.test", &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "store secrets") {
 		t.Fatalf("expected secret-store failure, got %v", err)
 	}
@@ -250,7 +303,7 @@ func TestAuthRemove(t *testing.T) {
 	fake.Token = "rt-4"
 	dialer := &fakeDialer{client: fake}
 	p := &scriptPrompter{secrets: []string{"pw", "pass"}}
-	if err := authAdd(ctx, st, ks, dialer, p, "rm@proton.test", &bytes.Buffer{}); err != nil {
+	if err := authAdd(ctx, st, ks, dialer, p, nil, "rm@proton.test", &bytes.Buffer{}); err != nil {
 		t.Fatalf("seed add: %v", err)
 	}
 	m, _ := st.GetMailboxByAddress(ctx, "rm@proton.test")
@@ -283,7 +336,7 @@ func TestAuthList(t *testing.T) {
 	fake.Token = "rt-5"
 	dialer := &fakeDialer{client: fake}
 	p := &scriptPrompter{secrets: []string{"pw", "pass"}}
-	if err := authAdd(ctx, st, ks, dialer, p, "list@proton.test", &bytes.Buffer{}); err != nil {
+	if err := authAdd(ctx, st, ks, dialer, p, nil, "list@proton.test", &bytes.Buffer{}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	var out bytes.Buffer
@@ -313,7 +366,7 @@ func TestRunLabels_ViaFake(t *testing.T) {
 
 	// Seed an active mailbox with a stored refresh token.
 	p := &scriptPrompter{secrets: []string{"pw", "pass"}}
-	if err := authAdd(ctx, st, ks, dialer, p, "labels@proton.test", &bytes.Buffer{}); err != nil {
+	if err := authAdd(ctx, st, ks, dialer, p, nil, "labels@proton.test", &bytes.Buffer{}); err != nil {
 		t.Fatalf("seed add: %v", err)
 	}
 
@@ -401,7 +454,7 @@ func TestAuthAdd_PersistsAccessToken(t *testing.T) {
 	fake.Access = "acc-add"
 	dialer := &fakeDialer{client: fake}
 
-	if err := authAdd(ctx, st, ks, dialer, &scriptPrompter{secrets: []string{"pw", "pass"}}, "add@proton.test", &bytes.Buffer{}); err != nil {
+	if err := authAdd(ctx, st, ks, dialer, &scriptPrompter{secrets: []string{"pw", "pass"}}, nil, "add@proton.test", &bytes.Buffer{}); err != nil {
 		t.Fatalf("authAdd: %v", err)
 	}
 	m, _ := st.GetMailboxByAddress(ctx, "add@proton.test")
@@ -425,7 +478,7 @@ func TestRunLabels_ResumesWithAccessTokenAndPersistsRotation(t *testing.T) {
 	fake.LabelList = []proton.Label{{ID: "0", Name: "Inbox", Type: proton.LabelTypeSystem}}
 	dialer := &fakeDialer{client: fake}
 
-	if err := authAdd(ctx, st, ks, dialer, &scriptPrompter{secrets: []string{"pw", "pass"}}, "lbl@proton.test", &bytes.Buffer{}); err != nil {
+	if err := authAdd(ctx, st, ks, dialer, &scriptPrompter{secrets: []string{"pw", "pass"}}, nil, "lbl@proton.test", &bytes.Buffer{}); err != nil {
 		t.Fatalf("seed add: %v", err)
 	}
 	m, _ := st.GetMailboxByAddress(ctx, "lbl@proton.test")
@@ -494,7 +547,7 @@ func TestAuthRefresh(t *testing.T) {
 	dialer := &fakeDialer{client: fake}
 
 	p := &scriptPrompter{secrets: []string{"pw", "pass"}}
-	if err := authAdd(ctx, st, ks, dialer, p, "refresh@proton.test", &bytes.Buffer{}); err != nil {
+	if err := authAdd(ctx, st, ks, dialer, p, nil, "refresh@proton.test", &bytes.Buffer{}); err != nil {
 		t.Fatalf("seed add: %v", err)
 	}
 	m, _ := st.GetMailboxByAddress(ctx, "refresh@proton.test")
@@ -504,7 +557,7 @@ func TestAuthRefresh(t *testing.T) {
 	}
 
 	p2 := &scriptPrompter{} // resume path succeeds; no prompts consumed
-	if err := authRefresh(ctx, st, ks, dialer, p2, "refresh@proton.test", &bytes.Buffer{}); err != nil {
+	if err := authRefresh(ctx, st, ks, dialer, p2, nil, "refresh@proton.test", &bytes.Buffer{}); err != nil {
 		t.Fatalf("authRefresh: %v", err)
 	}
 	// The stored UID (not "") must have reached the dialer's Resume.
@@ -537,7 +590,7 @@ func TestAuthAdd_PersistsSaltedKeyPass(t *testing.T) {
 	fake.SaltedKeyPassValue = []byte("derived-key-pass")
 	dialer := &fakeDialer{client: fake}
 
-	if err := authAdd(ctx, st, ks, dialer, &scriptPrompter{secrets: []string{"pw", "pass"}}, "skp@proton.test", &bytes.Buffer{}); err != nil {
+	if err := authAdd(ctx, st, ks, dialer, &scriptPrompter{secrets: []string{"pw", "pass"}}, nil, "skp@proton.test", &bytes.Buffer{}); err != nil {
 		t.Fatalf("authAdd: %v", err)
 	}
 	m, _ := st.GetMailboxByAddress(ctx, "skp@proton.test")
@@ -574,7 +627,7 @@ func TestAuthRefresh_EscalatesWhenResumeCannotUnlock(t *testing.T) {
 	dialer := &fakeDialer{client: fake}
 
 	// Seed via a normal add (persists a key pass = nil → empty stored value).
-	if err := authAdd(ctx, st, ks, dialer, &scriptPrompter{secrets: []string{"pw", "pass"}}, "esc@proton.test", &bytes.Buffer{}); err != nil {
+	if err := authAdd(ctx, st, ks, dialer, &scriptPrompter{secrets: []string{"pw", "pass"}}, nil, "esc@proton.test", &bytes.Buffer{}); err != nil {
 		t.Fatalf("seed add: %v", err)
 	}
 	m, _ := st.GetMailboxByAddress(ctx, "esc@proton.test")
@@ -596,7 +649,7 @@ func TestAuthRefresh_EscalatesWhenResumeCannotUnlock(t *testing.T) {
 
 	var out bytes.Buffer
 	p := &scriptPrompter{secrets: []string{"new-pw", "correct-pass"}}
-	if err := authRefresh(ctx, st, ks, dialer, p, "esc@proton.test", &out); err != nil {
+	if err := authRefresh(ctx, st, ks, dialer, p, nil, "esc@proton.test", &out); err != nil {
 		t.Fatalf("authRefresh: %v", err)
 	}
 	// It must have ESCALATED, not printed "Refreshed".
@@ -655,7 +708,7 @@ func TestAuthRefresh_AbsentAccessTokenReLogin(t *testing.T) {
 
 	var out bytes.Buffer
 	p := &scriptPrompter{secrets: []string{"pw", "pass"}}
-	if err := authRefresh(ctx, st, ks, dialer, p, "prefix-refresh@proton.test", &out); err != nil {
+	if err := authRefresh(ctx, st, ks, dialer, p, nil, "prefix-refresh@proton.test", &out); err != nil {
 		t.Fatalf("authRefresh: %v", err)
 	}
 	// The cheap resume must have been skipped (no access token to reuse).
@@ -686,7 +739,7 @@ func TestAuthRefresh_DeadTokenReLogin(t *testing.T) {
 	dialer := &fakeDialer{client: fake}
 
 	// Seed an active mailbox.
-	if err := authAdd(ctx, st, ks, dialer, &scriptPrompter{secrets: []string{"pw", "pass"}}, "recover@proton.test", &bytes.Buffer{}); err != nil {
+	if err := authAdd(ctx, st, ks, dialer, &scriptPrompter{secrets: []string{"pw", "pass"}}, nil, "recover@proton.test", &bytes.Buffer{}); err != nil {
 		t.Fatalf("seed add: %v", err)
 	}
 	m, _ := st.GetMailboxByAddress(ctx, "recover@proton.test")
@@ -700,7 +753,7 @@ func TestAuthRefresh_DeadTokenReLogin(t *testing.T) {
 
 	var out bytes.Buffer
 	p := &scriptPrompter{secrets: []string{"new-pw", "new-pass"}}
-	if err := authRefresh(ctx, st, ks, dialer, p, "recover@proton.test", &out); err != nil {
+	if err := authRefresh(ctx, st, ks, dialer, p, nil, "recover@proton.test", &out); err != nil {
 		t.Fatalf("authRefresh recovery: %v", err)
 	}
 	got, _ := st.GetMailboxByAddress(ctx, "recover@proton.test")
@@ -741,7 +794,7 @@ func TestAuthRefresh_ProtonUserIDMismatch(t *testing.T) {
 	dialer := &fakeDialer{client: fake, resumeErr: errors.New("refresh token invalid")}
 	p := &scriptPrompter{secrets: []string{"pw", "pass"}}
 
-	err := authRefresh(ctx, st, ks, dialer, p, "mismatch@proton.test", &bytes.Buffer{})
+	err := authRefresh(ctx, st, ks, dialer, p, nil, "mismatch@proton.test", &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "different Proton account") {
 		t.Fatalf("expected proton_user_id mismatch rejection, got %v", err)
 	}
@@ -816,14 +869,14 @@ func TestAuthAdd_DuplicateProtonUserID(t *testing.T) {
 	first := proton.NewFake()
 	first.UserID = "same-account"
 	first.Token = "rt-a"
-	if err := authAdd(ctx, st, ks, &fakeDialer{client: first}, &scriptPrompter{secrets: []string{"pw", "pass"}}, "one@proton.test", &bytes.Buffer{}); err != nil {
+	if err := authAdd(ctx, st, ks, &fakeDialer{client: first}, &scriptPrompter{secrets: []string{"pw", "pass"}}, nil, "one@proton.test", &bytes.Buffer{}); err != nil {
 		t.Fatalf("first add: %v", err)
 	}
 
 	second := proton.NewFake()
 	second.UserID = "same-account" // same Proton account, different address
 	second.Token = "rt-b"
-	err := authAdd(ctx, st, ks, &fakeDialer{client: second}, &scriptPrompter{secrets: []string{"pw", "pass"}}, "two@proton.test", &bytes.Buffer{})
+	err := authAdd(ctx, st, ks, &fakeDialer{client: second}, &scriptPrompter{secrets: []string{"pw", "pass"}}, nil, "two@proton.test", &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "already configured as one@proton.test") {
 		t.Fatalf("expected same-account rejection, got %v", err)
 	}
