@@ -13,12 +13,12 @@ CREATE TABLE mailboxes (
     last_sync_at    DATETIME
 );
 
--- messages: decrypted mail cache. Keyed by stable content hash for idempotent sync.
--- id = UUIDv7; hash = stable content fingerprint (Proton message id + content hash).
+-- messages: decrypted mail cache. Keyed by stable per-mailbox message identity for idempotent sync.
+-- id = UUIDv7; hash = stable per-mailbox message identity (mailbox_id + proton_id; NO content — see store.MessageHash).
 -- No encrypted columns — cache confidentiality via OS full-disk encryption (ADR-0012).
 CREATE TABLE messages (
     id          TEXT PRIMARY KEY,              -- UUIDv7 internal row id
-    hash        TEXT NOT NULL UNIQUE,          -- stable content fingerprint (ADR-0014)
+    hash        TEXT NOT NULL UNIQUE,          -- stable per-mailbox identity (mailbox_id + proton_id; ADR-0014)
     mailbox_id  TEXT NOT NULL REFERENCES mailboxes(id),
     proton_id   TEXT NOT NULL,                 -- Proton's message id
     ts          DATETIME NOT NULL,
@@ -119,8 +119,9 @@ CREATE TABLE denylist (
 );
 
 -- messages_fts: FTS5 external-content table for full-text search.
--- Kept in sync with messages via triggers below.
--- content='' means we manage content ourselves (the triggers do the job).
+-- content='messages' is external-content mode: FTS stores only the index and
+-- reads original values back from the messages table for snippets, keyed by
+-- content_rowid='rowid'. The triggers below keep the INDEX in sync.
 CREATE VIRTUAL TABLE messages_fts USING fts5(
     subject, sender, body,
     content='messages',
