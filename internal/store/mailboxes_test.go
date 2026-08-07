@@ -263,3 +263,29 @@ func TestDeleteMailbox_CascadesAllDependents(t *testing.T) {
 		t.Fatalf("DeleteMailbox second call: %v", err)
 	}
 }
+
+// TestMailboxNotOpenGuards asserts the nil/not-open guards return errNotOpen
+// (and do not panic) on both a nil *Store and a zero-value Store (issue #237).
+func TestMailboxNotOpenGuards(t *testing.T) {
+	ctx := context.Background()
+	stores := map[string]*Store{
+		"nil":        nil,
+		"zero-value": {},
+	}
+	for name, st := range stores {
+		t.Run(name, func(t *testing.T) {
+			if err := st.InsertMailbox(ctx, "id-1", "a@example.com"); !errors.Is(err, errNotOpen) {
+				t.Errorf("InsertMailbox = %v, want errNotOpen", err)
+			}
+			if _, err := st.GetMailbox(ctx, "id-1"); !errors.Is(err, errNotOpen) {
+				t.Errorf("GetMailbox = %v, want errNotOpen", err)
+			}
+			if _, err := st.GetMailboxByAddress(ctx, "a@example.com"); !errors.Is(err, errNotOpen) {
+				t.Errorf("GetMailboxByAddress = %v, want errNotOpen", err)
+			}
+			if _, err := st.ListMailboxes(ctx); !errors.Is(err, errNotOpen) {
+				t.Errorf("ListMailboxes = %v, want errNotOpen", err)
+			}
+		})
+	}
+}
