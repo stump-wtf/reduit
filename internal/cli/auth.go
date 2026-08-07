@@ -108,7 +108,7 @@ func newAuthAddCmd(cfgPath *string, verbose *bool) *cobra.Command {
 		Long:  "Authenticate a Proton account and store credentials in the OS keychain.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, _, err := loadConfigUnchecked(cfgPath, verbose)
+			cfg, logger, err := loadConfigUnchecked(cfgPath, verbose)
 			if err != nil {
 				return err
 			}
@@ -455,7 +455,7 @@ func newAuthRefreshCmd(cfgPath *string, verbose *bool) *cobra.Command {
 		Long:  "Refresh the session tokens for a previously-added Proton mailbox.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, _, err := loadConfigUnchecked(cfgPath, verbose)
+			cfg, logger, err := loadConfigUnchecked(cfgPath, verbose)
 			if err != nil {
 				return err
 			}

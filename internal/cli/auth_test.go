@@ -196,7 +196,7 @@ func TestAuthAdd_FreshDataDirMigrates(t *testing.T) {
 	dialer := &fakeDialer{client: fake}
 	p := &scriptPrompter{secrets: []string{"pw", "pass"}}
 
-	if err := authAdd(ctx, st, ks, dialer, p, "joe@proton.test", &bytes.Buffer{}); err != nil {
+	if err := authAdd(ctx, st, ks, dialer, p, nil, "joe@proton.test", &bytes.Buffer{}); err != nil {
 		t.Fatalf("authAdd on freshly-migrated store: %v", err)
 	}
 	m, err := st.GetMailboxByAddress(ctx, "joe@proton.test")
