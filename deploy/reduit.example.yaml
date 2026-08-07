@@ -1,85 +1,73 @@
 # Reduit — example configuration.
 #
-# Copy this file to /etc/reduit/reduit.yaml or pass --config /path
-# at startup. Secrets (oidc.client_secret) should come from env
-# (REDUIT_OIDC_CLIENT_SECRET) rather than living in the file.
+# Reduit is a single-user, local-first Proton Mail tool (ADR-0012): a
+# stdio MCP server for agents, a Bubble Tea TUI for humans, and a sync
+# engine that caches mail locally. There are no network listeners except
+# the reserved-for-future `serve` stub (ui.listen_addr below).
 #
-# Any REDUIT_* env var also supports a "_FILE" variant whose value is
-# the path to a file containing the secret (Docker secrets / Kubernetes
-# secrets convention). For example:
+# Every field is OPTIONAL — config.Defaults() ships sane values for all
+# of them, so an absent file works. Copy this to
+# ~/.config/reduit/reduit.yaml, or point at it with --config / REDUIT_CONFIG.
+# Config path precedence: --config flag, REDUIT_CONFIG env,
+# ~/.config/reduit/reduit.yaml, ./reduit.yaml.
 #
-#   REDUIT_OIDC_CLIENT_SECRET_FILE: /run/secrets/oidc_client_secret
+# Env overrides: any key is overridable as REDUIT_<SECTION>_<KEY>
+# (e.g. REDUIT_SYNC_CONCURRENCY=5). Secrets support the "_FILE" variant
+# whose value is a path to a file containing the secret (Docker/Kubernetes
+# secrets convention); the "_FILE" form wins when both are set.
 #
-# When both forms are set, the "_FILE" variant wins. Trailing
-# whitespace (including the newline Docker appends) is stripped from
-# the file contents. A "_FILE" pointer to a missing file is a hard
-# error at startup.
+# Proton credentials do NOT live here — they are in the OS keychain
+# (ADR-0013), provisioned via `reduit auth add`.
 
-server:
-  http_addr: ":443"     # Admin UI + MCP (HTTPS)
-  imap_addr: ":993"     # IMAPS — wired in v0.3
-  smtp_addr: ":465"     # SMTPS submission — wired in v0.4
-  metrics_addr: ""      # e.g. "127.0.0.1:9090" to expose Prometheus
+# Where Reduit keeps the SQLite cache and other local data.
+# Default: ~/.local/share/reduit
+#data_dir: /var/lib/reduit
 
-tls:
-  # Read by the hot-reloading loader (ADR-0009). Provision via
-  # certbot, Caddy, Traefik, etc. Reduit doesn't do ACME.
-  cert_path: /etc/reduit/tls/fullchain.pem
-  key_path:  /etc/reduit/tls/privkey.pem
-  # Set `disabled: true` ONLY when reduit sits behind a TLS-
-  # terminating reverse proxy on the same host or trusted network.
-  # The admin/MCP listener will serve plaintext HTTP; the proxy
-  # MUST handle TLS for inbound connections.
-  #
-  # CRITICAL: the public-facing URL (what the browser sees) MUST
-  # still be HTTPS. The session cookie and the __Host-Reduit-Bind
-  # cookie are written with Secure=true; browsers silently drop
-  # them when the page is served over HTTP, breaking login with
-  # no useful error. If you expose reduit's plaintext port directly
-  # to clients, login fails. Always proxy.
-  #
-  # IMAPS and SMTPS cannot be reverse-proxied (they're TCP, not
-  # HTTP). When tls.disabled is true, server.imap_addr and
-  # server.smtp_addr MUST be empty.
-  # disabled: false
+llm:
+  # One OpenAI-compatible egress, two model roles (ADR-0018).
+  # Text/embedding role — chat model (search, summarise, contact-facts,
+  # RAG) and embedding model. Local by default (LiteLLM proxy → Ollama).
+  #base_url: http://localhost:4000/v1
+  #text_model: ollama/llama3.2
+  #embed_model: nomic-embed-text
+  # api_key comes from REDUIT_LLM_API_KEY (or REDUIT_LLM_API_KEY_FILE);
+  # empty is fine for local proxies. Never commit a key here.
 
-master_key:
-  # Service master key (ADR-0003). Generated once with:
-  #   reduit master-key generate
-  # Back this file up out of band — loss = total data loss.
-  path: /var/lib/reduit/master.key
+  # Multimodal role (OCR/vision/audio) — OPT-IN, empty disables it.
+  # Configure independently so text can stay fully local while only
+  # media goes to a hosted endpoint, by deliberate choice. This is
+  # Reduit's heaviest, most sensitive egress (raw image/audio bytes).
+  #multimodal_base_url:
+  #multimodal_model:
+  # Key from REDUIT_LLM_MULTIMODAL_API_KEY (or ..._FILE).
 
-store:
-  path: /var/lib/reduit/reduit.db
-  # migrations_dir: /opt/reduit/migrations  # uncomment to override embedded migrations
-
-oidc:
-  # Pocket ID is the reference IdP for stumpcloud-style deployments,
-  # but any compliant OIDC provider works (Authelia, Keycloak, Okta).
-  issuer_url:    https://pocketid.example.tld
-  client_id:     reduit
-  # client_secret: keep in env REDUIT_OIDC_CLIENT_SECRET, not here.
-  redirect_url:  https://reduit.example.tld/auth/callback
-  scopes:
-    - openid
-    - profile
-    - email
-  # The first OIDC sub to log in becomes admin automatically (per
-  # SPEC-0005). After that, list additional admin subs here:
-  admin_subjects: []
-  # If false, an OIDC sub without an existing account is rejected.
-  # If true (default), first login auto-creates the account.
-  auto_create: true
+proton:
+  # App-version string sent as x-pm-appversion. Empty resolves to the
+  # Bridge family default, which Proton waves through without a CAPTCHA
+  # (ADR-0021). The literal "auto" detects "web-mail@<version>" — which
+  # Proton WILL challenge, so it is opt-in only. Must be consistent
+  # across auth and later commands or the session breaks (10013).
+  #app_version: ""
+  # Proton API base URL; empty targets production. Only set for a
+  # test/self-hosted server.
+  #host_url: ""
 
 sync:
-  # First sync of a mailbox backfills history over this window; every run
-  # after that tails Proton's event stream (SPEC-0002). Any Go duration
-  # string; "0" backfills the FULL mailbox. Default: 8760h (one year).
-  backfill_window: 8760h
-  # How many mailboxes sync in parallel in one `reduit sync`, bounding
-  # in-flight Proton requests. Default: 3.
-  concurrency: 3
+  # First sync of a mailbox backfills this window; later runs tail
+  # Proton's event stream (SPEC-0002). Any Go duration; "0" backfills
+  # the FULL mailbox. Default: 8760h (one year).
+  #backfill_window: 8760h
+  # Mailboxes synced in parallel in one run, bounding in-flight Proton
+  # requests. Default: 3.
+  #concurrency: 3
 
 logger:
-  level:  info     # debug | info | warn | error
-  format: text     # text | json
+  #level: info     # debug | info | warn | error
+  #format: text    # text | json
+
+ui:
+  # Listen address for the reserved-for-future `serve` stub (the web UI
+  # is retired — ADR-0025). Only used if `serve` ever ships as
+  # MCP-over-HTTP or a loopback media-companion. Non-loopback binds log
+  # a loud warning (no auth is shipped).
+  #listen_addr: 127.0.0.1:8787
