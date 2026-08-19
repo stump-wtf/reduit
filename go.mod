@@ -9,7 +9,7 @@ go 1.26.1
 //   - GO-2025-3955 / CVE-2025-58188 (crypto/x509 NotAfter time DoS)
 // All three are fixed in 1.26.2. The `go 1.26.1` line above is the
 // language-version floor; `toolchain` pins the actual compiler.
-toolchain go1.26.4
+toolchain go1.27.0
 
 require (
 	github.com/ProtonMail/gluon v0.17.1-0.20260225115619-c0f05c033a4a
