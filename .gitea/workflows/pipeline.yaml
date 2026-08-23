@@ -175,8 +175,23 @@ jobs:
           cache-to: type=registry,ref=gitea.stump.rocks/stump.wtf/reduit:buildcache,mode=max
 
   # ---- 7b. Gitea Pages ----------------------------------------------------
+  # Hangs off `build`, NOT `main-only`, so docs-site compiles on every PR and
+  # only publishes from main. Behind `main-only` this job never ran on a pull
+  # request, which meant nothing in PR CI ever executed `npm ci` or
+  # `docusaurus build` — docs-site changes were merged unverified and broke on
+  # main afterwards. Six Renovate PRs bumping @docusaurus/* and typescript sat
+  # "green" that way while their package-lock.json was stale, and the 3.10
+  # upgrade additionally needed a new @docusaurus/faster dependency that only a
+  # real build surfaces.
+  #
+  # This does not widen what can publish. static-site.yaml fences its deploy
+  # step on `github.ref` being the default branch, and on a pull request the
+  # caller's ref is refs/pull/<n>/merge — so a PR builds the site to prove it
+  # compiles and stops there, which is the behaviour that workflow documents
+  # for itself. Ordering on main is unchanged: `main-only` also only needs
+  # `build`, so publish still cannot run ahead of a green lint/test/build.
   pages:
-    needs: [main-only]
+    needs: [build]
     uses: https://gitea.stump.rocks/stump.wtf/ci/.gitea/workflows/static-site.yaml@main
     with:
       working_directory: docs-site
