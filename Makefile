@@ -21,11 +21,19 @@ LDFLAGS     := -X $(PKG)/internal/cli.Version=$(VERSION)
 DOCKER_IMG  ?= gitea.stump.rocks/stump.wtf/reduit
 DOCKER_TAG  ?= $(VERSION)
 
-# Static-analysis linter, pinned to match .gitea/workflows/ci.yaml and
-# .github/workflows/ci.yml. STATICCHECK_TOOLCHAIN forces staticcheck to
-# build with the go.mod toolchain; under GOTOOLCHAIN=auto it can build
-# with an older Go than this module's floor and then refuse to analyze.
-STATICCHECK_VERSION   ?= 2025.1.1
+# Static-analysis linter, pinned to match .github/workflows/ci.yml (the
+# Gitea side runs this same target via `make ci`, so the pin lives here).
+# STATICCHECK_TOOLCHAIN forces staticcheck to build with the go.mod
+# toolchain; under GOTOOLCHAIN=auto it can build with an older Go than
+# this module's floor and then refuse to analyze.
+#
+# The pin is a floor on the Go release staticcheck can READ, not just a
+# version preference: staticcheck parses the compiler's export data, and
+# a release predating the toolchain fails every package with "export data
+# version N is greater than maximum supported version M" rather than
+# reporting findings. 2025.1.1 cannot read Go 1.27's format, so bumping
+# the go.mod toolchain requires bumping this in the same change.
+STATICCHECK_VERSION   ?= 2026.2.1
 STATICCHECK_TOOLCHAIN := $(shell awk '/^toolchain /{print $$2}' go.mod)
 
 .PHONY: all
