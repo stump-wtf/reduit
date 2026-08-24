@@ -8,6 +8,8 @@ github.com/ProtonMail/bcrypt v0.0.0-20211005172633-e235017c1baf h1:yc9daCCYUefEs
 github.com/ProtonMail/bcrypt v0.0.0-20211005172633-e235017c1baf/go.mod h1:o0ESU9p83twszAU8LBeJKFAAMX14tISa0yk4Oo5TOqo=
 github.com/ProtonMail/gluon v0.17.1-0.20260225115619-c0f05c033a4a h1:x1Q9Fx8/SKO7JcJQvDCXY61h8SMgrJ2uOIR+nMn/eHo=
 github.com/ProtonMail/gluon v0.17.1-0.20260225115619-c0f05c033a4a/go.mod h1:0wi1rRLBe6aF8UTddl0CT2A4ri7jTBvrHr8RW6X2Ecc=
+github.com/ProtonMail/gluon v0.17.1-0.20260824121029-d9e7a94bf183 h1:wQqGjaX1bs0t7uKkP6Q0EXh70c+8bPXSljzKZaRkS4k=
+github.com/ProtonMail/gluon v0.17.1-0.20260824121029-d9e7a94bf183/go.mod h1:daQ+WR3Q4ytQmT28Wu4sKQg4tTZEaZ1BYZ3bYb8PBUQ=
 github.com/ProtonMail/go-crypto v0.0.0-20230321155629-9a39f2531310/go.mod h1:8TI4H3IbrackdNgv+92dI+rhpCaLqM0IfpgCgenFvRE=
 github.com/ProtonMail/go-crypto v1.4.1 h1:9RfcZHqEQUvP8RzecWEUafnZVtEvrBVL9BiF67IQOfM=
 github.com/ProtonMail/go-crypto v1.4.1/go.mod h1:e1OaTyu5SYVrO9gKOEhTc+5UcXtTUa+P3uLudwcgPqo=
