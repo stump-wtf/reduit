@@ -17,7 +17,7 @@ require (
 	github.com/ProtonMail/gopenpgp/v2 v2.10.0
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
-	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/charmbracelet/lipgloss/v2 v2.0.6
 	github.com/charmbracelet/log v1.0.0
 	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/google/uuid v1.6.0
