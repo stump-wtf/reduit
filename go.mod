@@ -12,7 +12,7 @@ go 1.26.1
 toolchain go1.27.0
 
 require (
-	github.com/ProtonMail/gluon v0.17.1-0.20260225115619-c0f05c033a4a
+	github.com/ProtonMail/gluon v0.17.1-0.20260824121029-d9e7a94bf183
 	github.com/ProtonMail/go-proton-api v0.4.1-0.20260424150947-6bf7f5a61eb8
 	github.com/ProtonMail/gopenpgp/v2 v2.10.0
 	github.com/charmbracelet/bubbles v1.0.0
